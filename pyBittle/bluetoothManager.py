@@ -4,14 +4,14 @@ BluetoothManager allows finding Bittle's physical address, connecting to
 Bittle, sending and receiving messages from it.
 """
 
-import socket
-import subprocess
-
-import bluetooth
-import serial.tools.list_ports
+from bleak import BleakScanner, BleakClient
+import logging
 
 
 __author__ = "EnriqueMoran"
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class BluetoothManager:
@@ -42,22 +42,37 @@ class BluetoothManager:
         Connects to Bittle.
     send_msg(msg):
         Sends a message to Bittle.
-    recv_msg(buffer_size=1024):
-        Returns received message from Bittle.
+    recv_msg(callback):
+        Receives messages from Bittle via notifications.
     close_connection():
         Closes connection with Bittle.
     """
 
     def __init__(self):
+        logging.info("Initializing BluetoothManager.")
         self._name = ""
         self._address = ""
         self._port = 1
         self._discovery_timeout = 8
         self._recv_timeout = 10
-        self.socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+        self.client = None
+        self._characteristic_uuid = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"  # Example UUID for BLE devices
+        self._characteristic_uuid_rx = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"  # Example UUID for BLE devices
+        self._characteristic_uuid_tx = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"  # Example UUID for BLE devices
+        self._cleanup_done = False  # Track whether cleanup has been performed
+
+    async def __aenter__(self):
+        """Support async context management."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_value, traceback):
+        """Ensure proper cleanup when exiting an async context."""
+        await self.close_connection()
 
     def __del__(self):
-        self.socket.close()
+        """Ensure proper cleanup when the object is deleted."""
+        if not self._cleanup_done:
+            logging.warning("BluetoothManager instance deleted without proper cleanup.")
 
     def __repr__(self):
         return f"BluetoothManager - name: {self.name}, address: " \
@@ -123,7 +138,7 @@ class BluetoothManager:
         else:
             raise TypeError("New timeout type must be int, greater than 0.")
 
-    def initialize_name_and_address(self, get_first_bittle=True):
+    async def initialize_name_and_address(self, get_first_bittle=True):
         """Sets self._name and self._address values by searching
         among paired devices and returns its values.
 
@@ -138,91 +153,100 @@ class BluetoothManager:
             name (str) : Found name, None if not found.
             address (str) : Found address, None if not found.
         """
-        if isinstance(get_first_bittle, bool):
-            pass
-        else:
+        logging.info("Initializing name and address.")
+        if not isinstance(get_first_bittle, bool):
             raise TypeError("Value type must be bool.")
 
-        search_name = self.name if not get_first_bittle and self.name else \
-            "Petoi"
-        paired_devices = self.get_paired_devices()
+        search_name = self.name if not get_first_bittle and self.name else "Bittle9E"
+        devices = await BleakScanner.discover()
 
-        for address, name in list(paired_devices):
-            if search_name in name:
-                self.name = name
-                self.address = address
+        for device in devices:
+            if device.name and search_name in device.name:
+                logging.info(f"Found device: {device.name} at {device.address}")
+                self.name = device.name
+                self.address = device.address
                 return self.name, self.address
-        else:  # Bittle name not found, return (None, None, None)
-            return None, None
 
-    def get_paired_devices(self):
-        """Returns A list of (MAC address, device name) tuples with paired
-        devices.
+        logging.warning("No matching device found.")
+        return None, None
 
-        Check bluetooth.discover_devices documentation for more info.
-        """
-        return bluetooth.discover_devices(duration=self.discovery_timeout,
-                                          flush_cache=True,
-                                          lookup_names=True)
-
-    def connect(self):
+    async def connect(self):
         """Connects to Bittle.
 
-        Connects to Bittle and wait until full response is given
-        (response will contain "Finished! at the end").
-        Once its connected, set self.socket's timeout to self._recv_timeout.
+        Connects to Bittle and waits until a full response is given.
+        Once connected, sets self.client's timeout to self._recv_timeout.
 
         Returns:
-            res (bool) : True if connected succesfully, False otherwise.
+            res (bool): True if connected successfully, False otherwise.
         """
+        logging.info(f"Attempting to connect to device at address: {self.address}")
         res = False
         try:
-            self.socket.connect((self.address, self.port))
-            self.socket.settimeout(self._recv_timeout)
-            while True:
-                data = self.socket.recv(1024)  # TODO: adjust buffer size
-                if len(data) == 0:
-                    break
-                elif b"Finished!" in data:
-                    res = True
-                    break
-        except:
-            pass
-        if not res:  # Reset socket
-            self.socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+            self.client = BleakClient(self.address)
+            res = await self.client.connect()
+        except Exception as e:
+            logging.error(f"Failed to connect: {e}")
+        if res:
+            logging.info("Successfully connected to the device.")
+        else:
+            logging.error("Failed to connect to the device.")
         return res
 
-    def send_msg(self, msg):
+    async def send_msg(self, msg):
         """Sends a message to Bittle.
 
         Parameters:
-            msg (str) : Message to send.
+            msg (str): Message to send.
         """
-        if isinstance(msg, str) and msg:
-            self.socket.send(msg)
-        else:
-            raise TypeError("Message must be non empty str.")
+        logging.info(f"Sending message: {msg}")
+        if not isinstance(msg, str) or not msg:
+            raise TypeError("Message must be a non-empty string.")
 
-    def recv_msg(self, buffer_size=1024):
-        """Receives a message from Bittle.
+        try:
+            await self.client.write_gatt_char(self._characteristic_uuid_rx, msg.encode())
+        except Exception as e:
+            logging.error(f"Failed to send message: {e}")
+
+    async def recv_msg(self, callback):
+        """Receives messages from Bittle via notifications.
 
         Parameters:
-            buffer_size (int) : Buffer size.
-
-        Returns:
-            data (bytes) : Received data.
+            callback (function): A function to handle incoming notifications.
         """
-        data = b''
-        if isinstance(buffer_size, int) and buffer_size > 0:
-            try:
-                data = self.socket.recv(buffer_size)
-            except socket.error as err:
-                raise socket.error("{!s}".format(err)) from None
-        else:
-            raise TypeError("Buffer size must be int, greater than zero.")
-        return data
+        logging.info("Receiving messages via notifications.")
+        try:
+            await self.subscribe_to_notifications(callback)
+        except Exception as e:
+            logging.error(f"Failed to receive messages via notifications: {e}")
 
-    def close_connection(self):
-        """Closes connection.
+    async def close_connection(self):
+        """Closes connection."""
+        logging.info("Closing connection.")
+        try:
+            if self.client:
+                await self.client.disconnect()
+                self._cleanup_done = True  # Mark cleanup as done
+        except Exception as e:
+            logging.error(f"Failed to close connection: {e}")
+
+    async def subscribe_to_notifications(self, callback):
+        """Subscribes to notifications on the characteristic UUID.
+
+        Parameters:
+            callback (function): A function to handle incoming notifications.
         """
-        self.socket.close()
+        logging.info("Subscribing to notifications.")
+        try:
+            await self.client.start_notify(self._characteristic_uuid_tx, callback)
+            logging.info("Successfully subscribed to notifications.")
+        except Exception as e:
+            logging.error(f"Failed to subscribe to notifications: {e}")
+
+    async def unsubscribe_from_notifications(self):
+        """Unsubscribes from notifications on the characteristic UUID."""
+        logging.info("Unsubscribing from notifications.")
+        try:
+            await self.client.stop_notify(self._characteristic_uuid_tx)
+            logging.info("Successfully unsubscribed from notifications.")
+        except Exception as e:
+            logging.error(f"Failed to unsubscribe from notifications: {e}")

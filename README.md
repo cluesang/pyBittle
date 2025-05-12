@@ -45,6 +45,62 @@ if is_connected:
 ```
 
 
+## Updated Bluetooth Implementation
+
+The `pyBittle` library now uses the `bleak` package for Bluetooth communication instead of `PyBluez`. This change improves compatibility and provides a more modern interface for handling Bluetooth Low Energy (BLE) devices.
+
+### Notification Structure
+
+The library now supports subscribing to notifications from Bittle. Notifications allow Bittle to send data back to your application asynchronously. Here's an example of how to use the notification system:
+
+```python
+import asyncio
+from pyBittle.bluetoothManager import BluetoothManager
+
+async def main():
+    async with BluetoothManager() as btManager:
+        # Initialize and connect to Bittle
+        name, addr = await btManager.initialize_name_and_address()
+        if name and addr:
+            print(f"Connected to Bittle: {name} at {addr}")
+            await btManager.connect()
+
+            # Define a callback to handle notifications
+            def notification_callback(sender, data):
+                print(f"Notification from {sender}: {data.decode('utf-8').strip()}")
+
+            # Subscribe to notifications
+            await btManager.subscribe_to_notifications(notification_callback)
+
+            # Keep the script running to receive notifications
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                print("Exiting...")
+                await btManager.unsubscribe_from_notifications()
+
+asyncio.run(main())
+```
+
+### Key Changes
+- **Dependency Update**: The library now uses `bleak` instead of `PyBluez`.
+- **Notification Support**: Added support for subscribing to and handling notifications from Bittle.
+
+### Installation Update
+To install the updated library, ensure you have the `bleak` package installed:
+
+```bash
+pip install bleak
+```
+
+Then, install `pyBittle` as usual:
+
+```bash
+pip install .
+```
+
+
 ## Installation
 
 Install automatically using the following command:
@@ -52,12 +108,10 @@ Install automatically using the following command:
 pip install pyBittle
 ```
 
-pyBittle has the following dependencies: [PyBluez](https://github.com/pybluez/pybluez) and [pySerial](https://github.com/pyserial/pyserial), install them manually using the following commands:
+pyBittle has the following dependencies: [bleak](https://github.com/hbldh/bleak) and [pySerial](https://github.com/pyserial/pyserial), install them manually using the following commands:
 
 ```
-sudo apt-get install libbluetooth-dev
-sudo apt-get install python-dev
-pip install pybluez
+pip install bleak
 
 pip install pyserial
 
