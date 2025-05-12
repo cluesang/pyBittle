@@ -94,8 +94,8 @@ class Bittle:
         Sends a command to Bittle through Bluetooth connection.
     send_msg_bluetooth(message):
         Sends a custom message to Bittle through Bluetooth connection.
-    receive_msg_bluetooth(buffer_size):
-        Returns received message from Bittle through Bluetooth connection.
+    receive_msg_bluetooth(callback):
+        Receives messages from Bittle through Bluetooth connection using notifications.
     send_movement_bluetooth(direction):
         Sends a movement command to Bittle through Bluetooth connection.
     disconnect_bluetooth():
@@ -179,7 +179,7 @@ class Bittle:
         else:
             raise TypeError("New gait must be Gait type.")
 
-    def connect_bluetooth(self, get_first_bittle=True):
+    async def connect_bluetooth(self, get_first_bittle=True):
         """Connects to Bittle.
 
         Parameters:
@@ -191,64 +191,44 @@ class Bittle:
             res (bool) : True if connected, False otherwise.
         """
         res = False
-        name, addr = self.bluetoothManager.initialize_name_and_address(
-                     get_first_bittle)
-        if name and addr:  # Bittle found among avaliable paired devices
-            res = self.bluetoothManager.connect()
+        name, addr = await self.bluetoothManager.initialize_name_and_address(get_first_bittle)
+        if name and addr:  # Bittle found among available paired devices
+            res = await self.bluetoothManager.connect()
         return res
 
-    def send_command_bluetooth(self, command):
+    async def send_command_bluetooth(self, command):
         """Sends command to Bittle through Bluetooth connection.
 
         Parameters:
-            command (Comand) : Command to send.
+            command (Command): Command to send.
         """
         if isinstance(command, Command):
-            self.bluetoothManager.send_msg(self._commands[command])
+            await self.bluetoothManager.send_msg(self._commands[command])
         else:
             raise TypeError("Command type must be Command.")
 
-    def send_msg_bluetooth(self, message):
+    async def send_msg_bluetooth(self, message):
         """Sends custom message to Bittle through Bluetooth connection.
 
         Parameters:
-            message (str) : Message to send.
+            message (str): Message to send.
         """
         if isinstance(message, str):
-            self.bluetoothManager.send_msg(message)
+            await self.bluetoothManager.send_msg(message)
         else:
             raise TypeError("Message type must be str.")
 
-    def receive_msg_bluetooth(self, buffer_size=1024):
-        """Receives a message from Bittle through Bluetooth connection.
+    async def receive_msg_bluetooth(self, callback):
+        """Receives messages from Bittle through Bluetooth connection using notifications.
 
         Parameters:
-            buffer_size (int) : Buffer size.
-
-        Returns:
-            data (bytes) : Received data.
+            callback (function): A function to handle incoming notifications.
         """
-        return self.bluetoothManager.recv_msg(buffer_size)
+        await self.bluetoothManager.recv_msg(callback)
 
-    def send_movement_bluetooth(self, direction):
-        """Sends movement commands with current gait through Bluetooth
-        connection.
-        """
-        if isinstance(direction, Direction):
-            command = ''
-            if direction in [Direction.BACKWARD, Direction.BACKWARDLEFT,
-                             Direction.BACKWARDRIGHT]:
-                command = 'kbk' + direction[1:]
-            else:
-                command = self.gait.value + direction.value
-            self.send_msg_bluetooth(command)
-        else:
-            raise TypeError("Direction must be Direction type.")
-
-    def disconnect_bluetooth(self):
-        """Closes Bluetooth connection.
-        """
-        self.bluetoothManager.close_connection()
+    async def disconnect_bluetooth(self):
+        """Closes Bluetooth connection."""
+        await self.bluetoothManager.close_connection()
 
     def has_wifi_connection(self):
         """Returns True if there is connection with REST API, False otherwise.

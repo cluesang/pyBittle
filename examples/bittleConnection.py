@@ -9,6 +9,7 @@ Bittle receives and replies to them.
 import os
 import sys
 import time
+import asyncio
 
 sys.path.append(os.path.join(sys.path[0], '..'))
 
@@ -23,35 +24,45 @@ rest = bittleManager.Command.REST  # d command
 sit = bittleManager.Command.SIT  # ksit command
 
 
-def test_bluetooth(bittle):
+async def test_bluetooth(bittle):
     """Connect to Bittle through Bluetooth and send 'khi' and 'd' commands.
 
     Parameters:
             bittle (bittleManager.Bittle) : Bittle instance.
     """
-    print("Connecting to Bittle through Bluetooth...")
-    isConnected = bittle.connect_bluetooth()
-    print(f"Connected: {isConnected}")
-    if isConnected:
-        print("Sending command: 'GREETING'...")
-        bittle.send_command_bluetooth(greet)
-        received = bittle.receive_msg_bluetooth()
-        decoded_msg = received.decode("utf-8")
-        decoded_msg = decoded_msg.replace('\r\n', '')
-        print(f"Received message: {decoded_msg}, expected: k")
-        time.sleep(6)
-        print("Sending command: 'REST'...")
-        bittle.send_command_bluetooth(rest)
-        received = bittle.receive_msg_bluetooth()
-        decoded_msg = received.decode("utf-8")
-        decoded_msg = decoded_msg.replace('\r\n', '')
-        print(f"Received message: {decoded_msg}, expected: d")
-        time.sleep(5)
-        print("Closing Bluetooth connection...")
-        bittle.disconnect_bluetooth()
-        print("Connection closed")
-    else:
-        print("Bittle not found")
+    try:
+        print("Connecting to Bittle through Bluetooth...")
+        isConnected = await bittle.connect_bluetooth()
+        print(f"Connected: {isConnected}")
+        if isConnected:
+            print("Subscribing to notifications...")
+
+            def notification_callback(sender, data):
+                decoded_msg = data.decode("utf-8").strip()
+                print(f"Received from {sender}: {decoded_msg}")
+
+            await bittle.receive_msg_bluetooth(notification_callback)
+            print("Subscribed to notifications.")
+
+            print("Sending command: 'GREETING'...")
+            await bittle.send_command_bluetooth(greet)
+            await asyncio.sleep(6)
+
+            print("Sending command: 'REST'...")
+            await bittle.send_command_bluetooth(rest)
+            await asyncio.sleep(5)
+
+            print("Closing Bluetooth connection...")
+            await bittle.disconnect_bluetooth()
+            print("Connection closed")
+        else:
+            print("Bittle not found")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        print("Ensuring cleanup...")
+        await bittle.bluetoothManager.close_connection()
+        print("Cleanup complete.")
 
 
 def test_wifi(bittle):
@@ -116,7 +127,7 @@ if __name__ == "__main__":
         bittle = bittleManager.Bittle()
         print("Bittle instance created")
         if connection == 1:
-            test_bluetooth(bittle)
+            asyncio.run(test_bluetooth(bittle))
         elif connection == 2:
             test_wifi(bittle)
         elif connection == 3:
