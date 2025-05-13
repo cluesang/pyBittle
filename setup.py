@@ -20,7 +20,7 @@ setup(
     url='https://github.com/EnriqueMoran/pyBittle',
     author='EnriqueMoran',
     author_email='enriquemoran95@gmail.com',
-    install_requires=['pybluez', 'pyserial', 'requests'],
+    install_requires=['bleak','pyserial', 'requests'],
     packages=find_packages(),
     zip_safe=False,
 )
